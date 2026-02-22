@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Language = "he" | "en";
 
@@ -71,6 +71,7 @@ type CreateForm = {
   description: string;
   priorityId: string;
   assigneeAccountId: string;
+  assigneeDisplayName: string;
 };
 
 const API_BASE_URL = "http://localhost:4000";
@@ -91,6 +92,7 @@ const textMap = {
     title: "עוזר Jira חכם",
     subtitle: "אגף השיקום - ניתוח משימות ויצירת User Stories",
     jiraSettings: "הגדרות Jira",
+    homePage: "דף ראשי",
     noTasksYet: "עדיין אין משימות",
     startConversation: "התחל שיחה עם ה-AI ליצירת משימות",
     welcomeTitle: "שלום! אני עוזר Jira חכם",
@@ -127,10 +129,9 @@ const textMap = {
     broadSearchLoaded: "בוצע ניסיון טעינה עם שאילתה רחבה יותר.",
     issueDetails: "פרטי משימה",
     chooseIssue: "בחר משימה מהרשימה כדי לראות פרטים.",
-    summary: "Summary",
-    description: "Description",
-    priority: "Priority",
-    assigneeId: "Assignee Account ID",
+    summary: "כותרת",
+    description: "תיאור",
+    priority: "עדיפות",
     searchUser: "חיפוש משתמש להקצאה",
     userQuery: "שם/אימייל לחיפוש",
     find: "חפש",
@@ -146,16 +147,18 @@ const textMap = {
     transitionComment: "תגובה אופציונלית למעבר",
     executeTransition: "בצע מעבר",
     createIssue: "יצירת משימה חדשה",
-    issueType: "Issue Type",
+    closeForm: "סגור",
+    issueType: "סוג משימה",
     create: "צור משימה",
     created: "נוצר בתאריך",
     updated: "עודכן בתאריך",
     status: "סטטוס",
     type: "סוג",
     assignee: "משויך ל",
+    assigneeId: "מוקצה ל",
     unassigned: "לא משויך",
     selectIssue: "בחר משימה",
-    emptySummaryError: "חובה למלא Summary.",
+    emptySummaryError: "חובה למלא כותרת.",
     emptyProjectError: "חובה למלא Project Key.",
     missingConfigError:
       "חסרות הגדרות חיבור. מלא Jira URL, אימייל ו-API Token ואז נסה שוב.",
@@ -175,6 +178,7 @@ const textMap = {
     title: "Smart Jira Assistant",
     subtitle: "Rehabilitation Dept - Task analysis and User Story creation",
     jiraSettings: "Jira Settings",
+    homePage: "Home",
     noTasksYet: "No tasks yet",
     startConversation: "Start a conversation with the AI to create tasks",
     welcomeTitle: "Hello! I am Smart Jira Assistant",
@@ -214,7 +218,7 @@ const textMap = {
     summary: "Summary",
     description: "Description",
     priority: "Priority",
-    assigneeId: "Assignee Account ID",
+    assigneeId: "Assignee",
     searchUser: "Search Assignable User",
     userQuery: "Name/email query",
     find: "Search",
@@ -230,6 +234,7 @@ const textMap = {
     transitionComment: "Optional transition comment",
     executeTransition: "Execute Transition",
     createIssue: "Create New Issue",
+    closeForm: "Close",
     issueType: "Issue Type",
     create: "Create Issue",
     created: "Created",
@@ -256,6 +261,59 @@ const textMap = {
     requestFailed: "Request failed.",
   },
 } as const;
+
+/** תרגום ערכים מתפריטים נפתחים (סטטוס, עדיפות, סוג משימה, מעבר) לעברית */
+const valueHe = {
+  priority: {
+    Highest: "גבוה ביותר",
+    High: "גבוה",
+    Medium: "בינוני",
+    Low: "נמוך",
+    Lowest: "נמוך ביותר",
+  } as Record<string, string>,
+  issueType: {
+    Task: "משימה",
+    Bug: "באג",
+    Story: "סיפור",
+    Feature: "פיצ'ר",
+    Idea: "רעיון",
+    Epic: "אפיק",
+    Subtask: "תת־משימה",
+    "Sub-task": "תת־משימה",
+  } as Record<string, string>,
+  status: {
+    "To Do": "לביצוע",
+    "In Progress": "בביצוע",
+    Done: "הושלם",
+    Open: "פתוח",
+    Closed: "סגור",
+    "In Review": "בבדיקה",
+    Review: "בדיקה",
+    Testing: "בדיקה",
+    Idea: "רעיון",
+    Approved: "אושר",
+    Rejected: "נדחה",
+    Draft: "טיוטה",
+    Published: "פורסם",
+  } as Record<string, string>,
+  transition: {
+    "In Progress": "בביצוע",
+    Done: "הושלם",
+    "To Do": "לביצוע",
+    Open: "פתוח",
+    Close: "סגירה",
+    Reopen: "פתיחה מחדש",
+    "Start Progress": "התחל התקדמות",
+    "Stop Progress": "עצור התקדמות",
+    Resolve: "פתור",
+    "Mark as Done": "סמן כהושלם",
+    Review: "בדיקה",
+    Testing: "בדיקה",
+    Idea: "רעיון",
+    Approve: "אישור",
+    Reject: "דחייה",
+  } as Record<string, string>,
+};
 
 function toText(node: unknown): string {
   if (!node) return "";
@@ -384,6 +442,8 @@ function App() {
   const [issueTypes, setIssueTypes] = useState<JiraIssueType[]>([]);
   const [userQuery, setUserQuery] = useState("");
   const [userResults, setUserResults] = useState<JiraUser[]>([]);
+  const [userQueryCreate, setUserQueryCreate] = useState("");
+  const [userResultsCreate, setUserResultsCreate] = useState<JiraUser[]>([]);
   const [newComment, setNewComment] = useState("");
   const [editingCommentId, setEditingCommentId] = useState("");
   const [editingCommentText, setEditingCommentText] = useState("");
@@ -403,12 +463,39 @@ function App() {
     description: "",
     priorityId: "",
     assigneeAccountId: "",
+    assigneeDisplayName: "",
   });
   const [isBusy, setIsBusy] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const [welcomeTaskInput, setWelcomeTaskInput] = useState("");
 
   const t = useMemo(() => textMap[language], [language]);
+
+  /** הצגת ערך בתפריט/תגית: בעברית מתורגם, אחרת מקורי */
+  const val = useCallback(
+    (kind: keyof typeof valueHe, name: string) =>
+      language === "he" && name ? (valueHe[kind][name] || name) : name,
+    [language]
+  );
+
+  const editFormAssigneedisplayName = useMemo(() => {
+    if (!editForm.assigneeAccountId) return null;
+    if (issueDetails?.fields?.assignee?.accountId === editForm.assigneeAccountId) {
+      return issueDetails.fields.assignee?.displayName ?? null;
+    }
+    return userResults.find((u) => u.accountId === editForm.assigneeAccountId)?.displayName ?? null;
+  }, [editForm.assigneeAccountId, issueDetails?.fields?.assignee, userResults]);
+
+  /** מעברים ללא כפילויות (לפי id) */
+  const uniqueTransitions = useMemo(() => {
+    const seen = new Set<string>();
+    return transitions.filter((t) => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      return true;
+    });
+  }, [transitions]);
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -533,9 +620,6 @@ function App() {
         setComments([]);
         setTransitions([]);
       }
-      if (result.issues.length > 0 && !selectedIssueKey) {
-        await loadIssueBundle(result.issues[0].key);
-      }
       setNotice({
         kind: "ok",
         text:
@@ -591,6 +675,7 @@ function App() {
     if (!ensureConnectionInputs()) return;
     setIsBusy(true);
     setSelectedIssueKey(issueKey);
+    setShowCreateForm(false);
     try {
       const [issue, commentList, transitionList] = await Promise.all([
         apiRequest<JiraIssue>(`/api/jira/issues/${encodeURIComponent(issueKey)}`, config),
@@ -675,7 +760,10 @@ function App() {
         ...prev,
         summary: "",
         description: "",
+        assigneeAccountId: "",
+        assigneeDisplayName: "",
       }));
+      setShowCreateForm(false);
       setNotice({ kind: "ok", text: `${t.issueCreated} ${created.key}` });
       await loadIssues();
       await loadIssueBundle(created.key);
@@ -788,6 +876,25 @@ function App() {
     }
   }
 
+  async function searchUsersForCreate() {
+    if (!userQueryCreate.trim()) {
+      setUserResultsCreate([]);
+      return;
+    }
+    setIsBusy(true);
+    try {
+      const result = await apiRequest<JiraUser[]>(
+        `/api/jira/users/search?query=${encodeURIComponent(userQueryCreate)}`,
+        config
+      );
+      setUserResultsCreate(result || []);
+    } catch (error) {
+      setNotice({ kind: "error", text: getErrorMessage(error) });
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   function applyQuickTemplate(typeKey: string) {
     const nameMap: Record<string, string> = {
       feature: "Feature",
@@ -824,12 +931,27 @@ function App() {
       <header className="top-bar">
         <button
           type="button"
-          className="btn-settings"
+          className="btn-icon btn-settings"
           onClick={() => setShowSettings((v) => !v)}
           aria-label={t.jiraSettings}
+          title={t.jiraSettings}
         >
           <span className="icon-gear" aria-hidden>⚙</span>
-          <span>{t.jiraSettings}</span>
+        </button>
+        <button
+          type="button"
+          className="btn-icon btn-home"
+          onClick={() => {
+            setSelectedIssueKey("");
+            setIssueDetails(null);
+            setComments([]);
+            setTransitions([]);
+            setShowCreateForm(false);
+          }}
+          aria-label={t.homePage}
+          title={t.homePage}
+        >
+          <span className="icon-home" aria-hidden>⌂</span>
         </button>
         <div className="brand">
           <h1 className="brand-title">{t.title}</h1>
@@ -956,19 +1078,19 @@ function App() {
 
       <div className="main-grid">
         <aside className="sidebar card">
-          {issues.length === 0 ? (
-            <div className="sidebar-empty">
-              <p className="sidebar-empty-title">{t.noTasksYet}</p>
-              <p className="sidebar-empty-tip">{t.startConversation}</p>
+          <section className="sidebar-section sidebar-section-list">
+            <div className="row between sidebar-header">
+              <h2 className="sidebar-title">{t.issuesList}</h2>
+              <button className="btn btn-soft btn-sm" onClick={loadIssues} type="button" disabled={isBusy}>
+                {t.refresh}
+              </button>
             </div>
-          ) : (
-            <>
-              <div className="row between sidebar-header">
-                <h2>{t.issuesList}</h2>
-                <button className="btn btn-soft btn-sm" onClick={loadIssues} type="button" disabled={isBusy}>
-                  {t.refresh}
-                </button>
+            {issues.length === 0 ? (
+              <div className="sidebar-empty">
+                <p className="sidebar-empty-title">{t.noTasksYet}</p>
+                <p className="sidebar-empty-tip">{t.startConversation}</p>
               </div>
+            ) : (
               <div className="issues-list">
                 {issues.map((issue) => (
                   <button
@@ -980,128 +1102,365 @@ function App() {
                     <strong>{issue.key}</strong>
                     <span>{issue.fields.summary || "-"}</span>
                     <small>
-                      {issue.fields.status?.name || "-"} | {issue.fields.priority?.name || "-"}
+                      {val("status", issue.fields.status?.name || "") || "-"} | {val("priority", issue.fields.priority?.name || "") || "-"}
                     </small>
                   </button>
                 ))}
               </div>
-            </>
-          )}
-          <div className="sidebar-jql" aria-hidden={issues.length > 0}>
-            <p className="empty-state-jql">
-              <strong>{t.currentJql}:</strong> {config.jql || "-"}
-            </p>
+            )}
+          </section>
+
+          <section className="sidebar-section sidebar-section-create">
             <button
-              className="btn btn-soft btn-sm"
-              onClick={tryBroaderSearch}
               type="button"
-              disabled={isBusy}
+              className={`btn btn-create-expand ${showCreateForm ? "btn-ghost" : "btn-soft"}`}
+              onClick={() => {
+                if (!showCreateForm) {
+                  setSelectedIssueKey("");
+                  setIssueDetails(null);
+                  setComments([]);
+                  setTransitions([]);
+                }
+                setShowCreateForm((v) => !v);
+              }}
             >
-              {t.tryBroaderSearch}
+              {showCreateForm ? t.closeForm : t.createIssue}
             </button>
-          </div>
-          <hr />
-          <h3>{t.createIssue}</h3>
-          <div className="grid grid-2">
-            <label>
-              <span>{t.projectKey}</span>
-              <input
-                value={createForm.projectKey}
-                onChange={(event) =>
-                  setCreateForm((prev) => ({ ...prev, projectKey: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              <span>{t.issueType}</span>
-              <select
-                value={
-                  issueTypes.length > 0
-                    ? createForm.issueTypeId || issueTypes[0].id
-                    : createForm.issueTypeName
-                }
-                onChange={(event) => {
-                  const selectedValue = event.target.value;
-                  if (issueTypes.length > 0) {
-                    const selectedType = issueTypes.find((item) => item.id === selectedValue);
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      issueTypeId: selectedValue,
-                      issueTypeName: selectedType?.name || prev.issueTypeName,
-                    }));
-                    return;
-                  }
-                  setCreateForm((prev) => ({
-                    ...prev,
-                    issueTypeName: selectedValue,
-                  }));
-                }}
-              >
-                {issueTypes.length === 0 && <option value="Task">Task</option>}
-                {issueTypes.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="span-2">
-              <span>{t.summary}</span>
-              <input
-                value={createForm.summary}
-                onChange={(event) =>
-                  setCreateForm((prev) => ({ ...prev, summary: event.target.value }))
-                }
-              />
-            </label>
-            <label className="span-2">
-              <span>{t.description}</span>
-              <textarea
-                rows={4}
-                value={createForm.description}
-                onChange={(event) =>
-                  setCreateForm((prev) => ({ ...prev, description: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              <span>{t.priority}</span>
-              <select
-                value={createForm.priorityId}
-                onChange={(event) =>
-                  setCreateForm((prev) => ({ ...prev, priorityId: event.target.value }))
-                }
-              >
-                <option value="">-</option>
-                {priorities.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>{t.assigneeId}</span>
-              <input
-                value={createForm.assigneeAccountId}
-                onChange={(event) =>
-                  setCreateForm((prev) => ({
-                    ...prev,
-                    assigneeAccountId: event.target.value,
-                  }))
-                }
-              />
-            </label>
-          </div>
-          <div className="actions">
-            <button className="btn btn-primary" onClick={createIssue} type="button" disabled={isBusy}>
-              {t.create}
-            </button>
-          </div>
+          </section>
         </aside>
 
         <main className="main-content card">
-          {!issueDetails ? (
+          {issueDetails ? (
+            <div className="detail-view">
+              {/* כותרת המשימה + מטא-בסיס */}
+              <header className="detail-header">
+                <div className="detail-key-row">
+                  <span className="detail-key">{issueDetails.key}</span>
+                  <span className="detail-badges">
+                    <span className="badge badge-status">{val("status", issueDetails.fields.status?.name || "") || "-"}</span>
+                    <span className="badge badge-type">{val("issueType", issueDetails.fields.issuetype?.name || "") || "-"}</span>
+                    {issueDetails.fields.priority?.name && (
+                      <span className="badge badge-priority">{val("priority", issueDetails.fields.priority.name)}</span>
+                    )}
+                  </span>
+                </div>
+                <div className="detail-meta-row">
+                  <span className="detail-meta-item">
+                    <span className="detail-meta-label">{t.assignee}</span>
+                    <span className="detail-meta-value">{issueDetails.fields.assignee?.displayName || t.unassigned}</span>
+                  </span>
+                  <span className="detail-meta-item">
+                    <span className="detail-meta-label">{t.created}</span>
+                    <span className="detail-meta-value">{formatDate(issueDetails.fields.created)}</span>
+                  </span>
+                  <span className="detail-meta-item">
+                    <span className="detail-meta-label">{t.updated}</span>
+                    <span className="detail-meta-value">{formatDate(issueDetails.fields.updated)}</span>
+                  </span>
+                </div>
+              </header>
+
+              {/* תוכן: כותרת + תיאור */}
+              <section className="detail-section detail-section-content">
+                <h3 className="detail-section-title">{t.summary}</h3>
+                <div className="detail-section-body">
+                  <input
+                    className="detail-summary-input"
+                    value={editForm.summary}
+                    onChange={(event) =>
+                      setEditForm((prev) => ({ ...prev, summary: event.target.value }))
+                    }
+                    placeholder={t.summary}
+                  />
+                </div>
+                <h3 className="detail-section-title">{t.description}</h3>
+                <div className="detail-section-body">
+                  <textarea
+                    className="detail-description-textarea"
+                    rows={5}
+                    value={editForm.description}
+                    onChange={(event) =>
+                      setEditForm((prev) => ({ ...prev, description: event.target.value }))
+                    }
+                    placeholder={t.description}
+                  />
+                </div>
+              </section>
+
+              {/* עריכה: עדיפות, משויך, שמירה */}
+              <section className="detail-section detail-section-edit">
+                <h3 className="detail-section-title">{language === "he" ? "עדכון משימה" : "Update issue"}</h3>
+                <div className="detail-section-body">
+                  <div className="detail-edit-grid">
+                    <label className="detail-label">
+                      <span className="detail-label-text">{t.priority}</span>
+                      <select
+                        value={editForm.priorityId}
+                        onChange={(event) =>
+                          setEditForm((prev) => ({ ...prev, priorityId: event.target.value }))
+                        }
+                      >
+                        <option value="">-</option>
+                        {priorities.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {val("priority", item.name)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="detail-label detail-assignee-display">
+                      <span className="detail-label-text">{t.assignee}</span>
+                      <span className="detail-assignee-value">
+                        {editFormAssigneedisplayName ?? t.unassigned}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="detail-search-user">
+                    <span className="detail-section-title detail-section-title-sm">{t.searchUser}</span>
+                    <div className="row">
+                      <input
+                        value={userQuery}
+                        onChange={(event) => setUserQuery(event.target.value)}
+                        placeholder={t.userQuery}
+                      />
+                      <button className="btn btn-soft" onClick={searchUsers} type="button" disabled={isBusy}>
+                        {t.find}
+                      </button>
+                    </div>
+                    <div className="user-results">
+                      {userResults.length === 0 && userQuery.trim() && <p className="user-results-empty">{t.noUsersFound}</p>}
+                      {userResults.map((user) => (
+                        <button
+                          key={user.accountId}
+                          className="user-item"
+                          onClick={() =>
+                            setEditForm((prev) => ({
+                              ...prev,
+                              assigneeAccountId: user.accountId,
+                            }))
+                          }
+                          type="button"
+                        >
+                          <strong>{user.displayName}</strong>
+                          <span>{user.emailAddress || user.accountId}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="actions">
+                    <button className="btn btn-primary" onClick={saveIssueChanges} type="button" disabled={isBusy}>
+                      {t.saveChanges}
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              {/* תגובות */}
+              <section className="detail-section detail-section-comments">
+                <h3 className="detail-section-title">{t.comments}</h3>
+                <div className="detail-section-body">
+                  <label className="detail-label">
+                    <span className="detail-label-text">{t.newComment}</span>
+                    <textarea
+                      rows={3}
+                      value={newComment}
+                      onChange={(event) => setNewComment(event.target.value)}
+                      placeholder={t.newComment}
+                    />
+                  </label>
+                  <div className="actions">
+                    <button className="btn btn-primary" onClick={addComment} type="button" disabled={isBusy}>
+                      {t.addComment}
+                    </button>
+                  </div>
+                  <div className="comment-list">
+                    {comments.map((comment) => (
+                      <div key={comment.id} className="comment-item">
+                        <p className="comment-item-meta">
+                          <strong>{comment.author?.displayName || "-"}</strong>
+                          <span>{formatDate(comment.updated || comment.created)}</span>
+                        </p>
+                        {editingCommentId === comment.id ? (
+                          <>
+                            <textarea
+                              rows={3}
+                              value={editingCommentText}
+                              onChange={(event) => setEditingCommentText(event.target.value)}
+                            />
+                            <div className="actions">
+                              <button className="btn btn-primary btn-sm" onClick={() => saveComment(comment.id)} type="button">
+                                {t.saveComment}
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <pre className="comment-item-body">{toText(comment.body).trim()}</pre>
+                            <div className="actions">
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => {
+                                  setEditingCommentId(comment.id);
+                                  setEditingCommentText(toText(comment.body).trim());
+                                }}
+                                type="button"
+                              >
+                                {t.editComment}
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              {/* מעברי סטטוס */}
+              <section className="detail-section detail-section-transitions">
+                <h3 className="detail-section-title">{t.transitions}</h3>
+                <div className="detail-section-body">
+                  <div className="detail-edit-grid">
+                    <label className="detail-label">
+                      <span className="detail-label-text">{t.transitionTo}</span>
+                      <select
+                        value={transitionId}
+                        onChange={(event) => setTransitionId(event.target.value)}
+                      >
+<option value="">{language === "he" ? "בחר" : "Choose"}</option>
+                        {uniqueTransitions.map((transition) => (
+                      <option key={transition.id} value={transition.id}>
+                        {val("transition", transition.name)}
+                        {transition.to?.name ? ` → ${val("status", transition.to.name)}` : ""}
+                      </option>
+                    ))}
+                      </select>
+                    </label>
+                    <label className="detail-label">
+                      <span className="detail-label-text">{t.transitionComment}</span>
+                      <input
+                        value={transitionComment}
+                        onChange={(event) => setTransitionComment(event.target.value)}
+                        placeholder={t.transitionComment}
+                      />
+                    </label>
+                  </div>
+                  <div className="actions">
+                    <button className="btn btn-primary" onClick={executeTransition} type="button" disabled={isBusy}>
+                      {t.executeTransition}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          ) : showCreateForm ? (
+            <div className="detail-view create-form-view">
+              <header className="detail-header">
+                <div className="detail-key-row">
+                  <span className="detail-key">{t.createIssue}</span>
+                </div>
+              </header>
+              <section className="detail-section detail-section-content">
+                <h3 className="detail-section-title">{t.summary}</h3>
+                <div className="detail-section-body">
+                  <input
+                    className="detail-summary-input"
+                    value={createForm.summary}
+                    onChange={(e) => setCreateForm((prev) => ({ ...prev, summary: e.target.value }))}
+                    placeholder={t.summary}
+                  />
+                </div>
+                <h3 className="detail-section-title">{t.description}</h3>
+                <div className="detail-section-body">
+                  <textarea
+                    className="detail-description-textarea"
+                    rows={5}
+                    value={createForm.description}
+                    onChange={(e) => setCreateForm((prev) => ({ ...prev, description: e.target.value }))}
+                    placeholder={t.description}
+                  />
+                </div>
+              </section>
+              <section className="detail-section detail-section-edit">
+                <h3 className="detail-section-title">{t.createIssue}</h3>
+                <div className="detail-section-body">
+                  <div className="detail-edit-grid">
+                    <label className="detail-label">
+                      <span className="detail-label-text">{t.projectKey}</span>
+                      <input
+                        value={createForm.projectKey}
+                        onChange={(e) => setCreateForm((prev) => ({ ...prev, projectKey: e.target.value }))}
+                      />
+                    </label>
+                    <label className="detail-label">
+                      <span className="detail-label-text">{t.issueType}</span>
+                      <select
+                        value={issueTypes.length > 0 ? createForm.issueTypeId || issueTypes[0].id : createForm.issueTypeName}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (issueTypes.length > 0) {
+                            const sel = issueTypes.find((i) => i.id === v);
+                            setCreateForm((prev) => ({ ...prev, issueTypeId: v, issueTypeName: sel?.name || prev.issueTypeName }));
+                          } else {
+                            setCreateForm((prev) => ({ ...prev, issueTypeName: v }));
+                          }
+                        }}
+                      >
+                        {issueTypes.length === 0 && <option value="Task">Task</option>}
+                        {issueTypes.map((item) => (
+                          <option key={item.id} value={item.id}>{val("issueType", item.name)}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="detail-label">
+                      <span className="detail-label-text">{t.priority}</span>
+                      <select
+                        value={createForm.priorityId}
+                        onChange={(e) => setCreateForm((prev) => ({ ...prev, priorityId: e.target.value }))}
+                      >
+                        <option value="">-</option>
+                        {priorities.map((item) => (
+                          <option key={item.id} value={item.id}>{val("priority", item.name)}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="detail-label detail-assignee-display">
+                      <span className="detail-label-text">{t.assignee}</span>
+                      <span className="detail-assignee-value">{createForm.assigneeDisplayName || t.unassigned}</span>
+                    </div>
+                  </div>
+                  <div className="detail-search-user">
+                    <span className="detail-section-title detail-section-title-sm">{t.searchUser}</span>
+                    <div className="row">
+                      <input
+                        value={userQueryCreate}
+                        onChange={(e) => setUserQueryCreate(e.target.value)}
+                        placeholder={t.userQuery}
+                      />
+                      <button type="button" className="btn btn-soft" onClick={searchUsersForCreate} disabled={isBusy}>{t.find}</button>
+                    </div>
+                    <div className="user-results">
+                      {userResultsCreate.length === 0 && userQueryCreate.trim() && <p className="user-results-empty">{t.noUsersFound}</p>}
+                      {userResultsCreate.map((user) => (
+                        <button
+                          key={user.accountId}
+                          type="button"
+                          className="user-item"
+                          onClick={() => setCreateForm((prev) => ({ ...prev, assigneeAccountId: user.accountId, assigneeDisplayName: user.displayName }))}
+                        >
+                          <strong>{user.displayName}</strong>
+                          <span>{user.emailAddress || user.accountId}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="actions">
+                    <button type="button" className="btn btn-primary" onClick={createIssue} disabled={isBusy}>{t.create}</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          ) : (
             <div className="welcome-view">
               <h2 className="welcome-title">{t.welcomeTitle}</h2>
               <p className="welcome-desc">{t.welcomeDesc}</p>
@@ -1119,30 +1478,12 @@ function App() {
               </div>
               <p className="quick-templates-label">{t.quickTemplates}</p>
               <div className="quick-templates">
-                <button type="button" className="template-btn template-feature" onClick={() => applyQuickTemplate("feature")}>
-                  <span className="template-icon">💡</span>
-                  <span>{t.templateNewFeature}</span>
-                </button>
-                <button type="button" className="template-btn template-ux" onClick={() => applyQuickTemplate("ux")}>
-                  <span className="template-icon">🚀</span>
-                  <span>{t.templateUX}</span>
-                </button>
-                <button type="button" className="template-btn template-bug" onClick={() => applyQuickTemplate("bug")}>
-                  <span className="template-icon">🐛</span>
-                  <span>{t.templateBug}</span>
-                </button>
-                <button type="button" className="template-btn template-content" onClick={() => applyQuickTemplate("content")}>
-                  <span className="template-icon">📄</span>
-                  <span>{t.templateContent}</span>
-                </button>
-                <button type="button" className="template-btn template-value" onClick={() => applyQuickTemplate("value")}>
-                  <span className="template-icon">⚡</span>
-                  <span>{t.templateCheckValue}</span>
-                </button>
-                <button type="button" className="template-btn template-breakdown" onClick={() => applyQuickTemplate("breakdown")}>
-                  <span className="template-icon">⊞</span>
-                  <span>{t.templateBreakDown}</span>
-                </button>
+                <button type="button" className="template-btn template-feature" onClick={() => applyQuickTemplate("feature")}><span className="template-icon">💡</span><span>{t.templateNewFeature}</span></button>
+                <button type="button" className="template-btn template-ux" onClick={() => applyQuickTemplate("ux")}><span className="template-icon">🚀</span><span>{t.templateUX}</span></button>
+                <button type="button" className="template-btn template-bug" onClick={() => applyQuickTemplate("bug")}><span className="template-icon">🐛</span><span>{t.templateBug}</span></button>
+                <button type="button" className="template-btn template-content" onClick={() => applyQuickTemplate("content")}><span className="template-icon">📄</span><span>{t.templateContent}</span></button>
+                <button type="button" className="template-btn template-value" onClick={() => applyQuickTemplate("value")}><span className="template-icon">⚡</span><span>{t.templateCheckValue}</span></button>
+                <button type="button" className="template-btn template-breakdown" onClick={() => applyQuickTemplate("breakdown")}><span className="template-icon">⊞</span><span>{t.templateBreakDown}</span></button>
               </div>
               <div className="welcome-input-row">
                 <textarea
@@ -1150,226 +1491,12 @@ function App() {
                   placeholder={t.describePlaceholder}
                   value={welcomeTaskInput}
                   onChange={(e) => setWelcomeTaskInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      submitWelcomeTask();
-                    }
-                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitWelcomeTask(); } }}
                   rows={2}
                 />
-                <button
-                  type="button"
-                  className="btn-send"
-                  onClick={submitWelcomeTask}
-                  aria-label="שלח"
-                >
-                  <span className="send-icon">➤</span>
-                </button>
+                <button type="button" className="btn-send" onClick={submitWelcomeTask} aria-label="שלח"><span className="send-icon">➤</span></button>
               </div>
             </div>
-          ) : (
-            <>
-              <h2>{t.issueDetails}</h2>
-              <div className="meta">
-                <div>
-                  <strong>{t.selectIssue}:</strong> {issueDetails.key}
-                </div>
-                <div>
-                  <strong>{t.status}:</strong> {issueDetails.fields.status?.name || "-"}
-                </div>
-                <div>
-                  <strong>{t.type}:</strong> {issueDetails.fields.issuetype?.name || "-"}
-                </div>
-                <div>
-                  <strong>{t.assignee}:</strong>{" "}
-                  {issueDetails.fields.assignee?.displayName || t.unassigned}
-                </div>
-                <div>
-                  <strong>{t.created}:</strong> {formatDate(issueDetails.fields.created)}
-                </div>
-                <div>
-                  <strong>{t.updated}:</strong> {formatDate(issueDetails.fields.updated)}
-                </div>
-              </div>
-
-              <div className="grid grid-2">
-                <label className="span-2">
-                  <span>{t.summary}</span>
-                  <input
-                    value={editForm.summary}
-                    onChange={(event) =>
-                      setEditForm((prev) => ({ ...prev, summary: event.target.value }))
-                    }
-                  />
-                </label>
-                <label className="span-2">
-                  <span>{t.description}</span>
-                  <textarea
-                    rows={5}
-                    value={editForm.description}
-                    onChange={(event) =>
-                      setEditForm((prev) => ({ ...prev, description: event.target.value }))
-                    }
-                  />
-                </label>
-                <label>
-                  <span>{t.priority}</span>
-                  <select
-                    value={editForm.priorityId}
-                    onChange={(event) =>
-                      setEditForm((prev) => ({ ...prev, priorityId: event.target.value }))
-                    }
-                  >
-                    <option value="">-</option>
-                    {priorities.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>{t.assigneeId}</span>
-                  <input
-                    value={editForm.assigneeAccountId}
-                    onChange={(event) =>
-                      setEditForm((prev) => ({
-                        ...prev,
-                        assigneeAccountId: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              </div>
-
-              <h3>{t.searchUser}</h3>
-              <div className="row">
-                <input
-                  value={userQuery}
-                  onChange={(event) => setUserQuery(event.target.value)}
-                  placeholder={t.userQuery}
-                />
-                <button className="btn btn-soft" onClick={searchUsers} type="button" disabled={isBusy}>
-                  {t.find}
-                </button>
-              </div>
-              <div className="user-results">
-                {userResults.length === 0 && userQuery.trim() && <p>{t.noUsersFound}</p>}
-                {userResults.map((user) => (
-                  <button
-                    key={user.accountId}
-                    className="user-item"
-                    onClick={() =>
-                      setEditForm((prev) => ({
-                        ...prev,
-                        assigneeAccountId: user.accountId,
-                      }))
-                    }
-                    type="button"
-                  >
-                    <strong>{user.displayName}</strong>
-                    <span>{user.emailAddress || user.accountId}</span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="actions">
-                <button className="btn btn-primary" onClick={saveIssueChanges} type="button" disabled={isBusy}>
-                  {t.saveChanges}
-                </button>
-              </div>
-
-              <hr />
-
-              <h3>{t.comments}</h3>
-              <label>
-                <span>{t.newComment}</span>
-                <textarea
-                  rows={3}
-                  value={newComment}
-                  onChange={(event) => setNewComment(event.target.value)}
-                />
-              </label>
-              <div className="actions">
-                <button className="btn btn-primary" onClick={addComment} type="button" disabled={isBusy}>
-                  {t.addComment}
-                </button>
-              </div>
-              <div className="comment-list">
-                {comments.map((comment) => (
-                  <div key={comment.id} className="comment-item">
-                    <p>
-                      <strong>{comment.author?.displayName || "-"}</strong> |{" "}
-                      {formatDate(comment.updated || comment.created)}
-                    </p>
-                    {editingCommentId === comment.id ? (
-                      <>
-                        <textarea
-                          rows={3}
-                          value={editingCommentText}
-                          onChange={(event) => setEditingCommentText(event.target.value)}
-                        />
-                        <div className="actions">
-                          <button className="btn btn-primary btn-sm" onClick={() => saveComment(comment.id)} type="button">
-                            {t.saveComment}
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <pre>{toText(comment.body).trim()}</pre>
-                        <div className="actions">
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            onClick={() => {
-                              setEditingCommentId(comment.id);
-                              setEditingCommentText(toText(comment.body).trim());
-                            }}
-                            type="button"
-                          >
-                            {t.editComment}
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <hr />
-
-              <h3>{t.transitions}</h3>
-              <div className="grid grid-2">
-                <label>
-                  <span>{t.transitionTo}</span>
-                  <select
-                    value={transitionId}
-                    onChange={(event) => setTransitionId(event.target.value)}
-                  >
-                    <option value="">{language === "he" ? "בחר" : "Choose"}</option>
-                    {transitions.map((transition) => (
-                      <option key={transition.id} value={transition.id}>
-                        {transition.name}
-                        {transition.to?.name ? ` -> ${transition.to.name}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>{t.transitionComment}</span>
-                  <input
-                    value={transitionComment}
-                    onChange={(event) => setTransitionComment(event.target.value)}
-                  />
-                </label>
-              </div>
-              <div className="actions">
-                <button className="btn btn-primary" onClick={executeTransition} type="button" disabled={isBusy}>
-                  {t.executeTransition}
-                </button>
-              </div>
-            </>
           )}
         </main>
       </div>
